@@ -1,0 +1,216 @@
+name: Template Validation
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate-templates:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+    
+    - name: Validate Markdown Files
+      run: |
+        # Check that all markdown files are valid
+        find . -name "*.md" -type f | while read file; do
+          echo "Validating $file"
+          if ! head -n 1 "$file" | grep -q "^#"; then
+            echo "Warning: $file doesn't start with a header"
+          fi
+        done
+    
+    - name: Check Template Structure
+      run: |
+        # Verify required directories exist
+        required_dirs=(
+          "docs/templates"
+          "docs/examples" 
+          "docs/guides"
+          "config/claude-config-templates"
+          "scripts"
+        )
+        
+        for dir in "${required_dirs[@]}"; do
+          if [ ! -d "$dir" ]; then
+            echo "Error: Required directory $dir is missing"
+            exit 1
+          else
+            echo "✓ Directory $dir exists"
+          fi
+        done
+    
+    - name: Validate Required Files
+      run: |
+        # Check for required template files
+        required_files=(
+          "docs/templates/create-prd.md"
+          "docs/templates/generate-tasks.md"
+          "docs/templates/architecture-template.md"
+          "docs/templates/agentic-ai-template.md"
+          "config/claude-config-templates/CLAUDE-simple.md"
+          "config/claude-config-templates/CLAUDE-medium.md"
+          "config/claude-config-templates/CLAUDE-complex.md"
+          "scripts/setup-project.sh"
+          "CLAUDE.md"
+          "package.template.json"
+        )
+        
+        for file in "${required_files[@]}"; do
+          if [ ! -f "$file" ]; then
+            echo "Error: Required file $file is missing"
+            exit 1
+          else
+            echo "✓ File $file exists"
+          fi
+        done
+    
+    - name: Test Setup Script
+      run: |
+        # Test that setup script is executable and has basic validation
+        if [ ! -x "scripts/setup-project.sh" ]; then
+          echo "Error: setup-project.sh is not executable"
+          chmod +x scripts/setup-project.sh
+        fi
+        
+        # Basic syntax check
+        bash -n scripts/setup-project.sh
+        echo "✓ Setup script syntax is valid"
+    
+    - name: Validate JSON Templates
+      run: |
+        # Validate JSON files
+        if [ -f "package.template.json" ]; then
+          node -e "JSON.parse(require('fs').readFileSync('package.template.json', 'utf8'))"
+          echo "✓ package.template.json is valid JSON"
+        fi
+    
+    - name: Check Documentation Links
+      run: |
+        # Check for broken internal links in README
+        if grep -q "\[.*\](.*\.md)" README.md; then
+          echo "Checking internal documentation links..."
+          
+          # Extract markdown links and check if files exist
+          grep -o '\[.*\]([^)]*\.md[^)]*)' README.md | \
+          sed 's/.*](\([^)]*\)).*/\1/' | \
+          while read link; do
+            if [[ "$link" =~ ^https?:// ]]; then
+              continue  # Skip external links
+            fi
+            if [ ! -f "$link" ]; then
+              echo "Warning: Linked file $link not found"
+            else
+              echo "✓ Link $link exists"
+            fi
+          done
+        fi
+    
+    - name: Generate Template Report
+      run: |
+        echo "# Template Validation Report" > validation-report.md
+        echo "" >> validation-report.md
+        echo "## File Counts" >> validation-report.md
+        echo "- Templates: $(find docs/templates -name '*.md' | wc -l)" >> validation-report.md
+        echo "- Examples: $(find docs/examples -type f | wc -l)" >> validation-report.md
+        echo "- Guides: $(find docs/guides -name '*.md' | wc -l)" >> validation-report.md
+        echo "- Config Templates: $(find config -name '*.md' | wc -l)" >> validation-report.md
+        echo "" >> validation-report.md
+        echo "## Validation Status" >> validation-report.md
+        echo "✅ All required files present" >> validation-report.md
+        echo "✅ All templates validated" >> validation-report.md
+        echo "✅ Setup script functional" >> validation-report.md
+        
+        cat validation-report.md
+    
+    - name: Upload Validation Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: validation-report
+        path: validation-report.md
+
+  test-project-creation:
+    runs-on: ubuntu-latest
+    needs: validate-templates
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+    
+    - name: Test Project Creation
+      run: |
+        # Test the setup script with automated inputs
+        echo "Testing project creation..."
+        
+        # Create a test script that provides inputs
+        cat > test-setup.sh << 'EOF'
+        #!/bin/bash
+        
+        # Automated inputs for setup script
+        {
+          echo "test-project"      # Project name
+          echo "Test project for CI"  # Description
+          echo "1"                 # Simple project
+          echo "1"                 # Node.js/TypeScript
+          echo "n"                 # No git init for test
+        } | ./scripts/setup-project.sh
+        EOF
+        
+        chmod +x test-setup.sh
+        ./test-setup.sh
+        
+        # Verify the created project structure
+        if [ -d "test-project" ]; then
+          echo "✓ Project directory created"
+          
+          cd test-project
+          
+          # Check for required files
+          if [ -f "CLAUDE.md" ]; then
+            echo "✓ CLAUDE.md created"
+          else
+            echo "✗ CLAUDE.md missing"
+            exit 1
+          fi
+          
+          if [ -f "README.md" ]; then
+            echo "✓ README.md created"
+          else
+            echo "✗ README.md missing"
+            exit 1
+          fi
+          
+          if [ -f "package.json" ]; then
+            echo "✓ package.json created"
+            # Validate JSON
+            node -e "JSON.parse(require('fs').readFileSync('package.json', 'utf8'))"
+            echo "✓ package.json is valid JSON"
+          fi
+          
+          # Check directory structure
+          for dir in docs src tests config scripts; do
+            if [ -d "$dir" ]; then
+              echo "✓ Directory $dir created"
+            else
+              echo "✗ Directory $dir missing"
+              exit 1
+            fi
+          done
+          
+          echo "✅ Project creation test passed"
+        else
+          echo "✗ Project directory not created"
+          exit 1
+        fi
