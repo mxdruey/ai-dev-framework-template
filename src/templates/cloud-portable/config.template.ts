@@ -84,28 +84,28 @@ class ConfigurationManager {
   private config?: Config;
   private ssm?: AWS.SSM;
   private secretsManager?: AWS.SecretsManager;
-
+  
   private constructor() {
     if (this.isCloudEnvironment()) {
       this.ssm = new AWS.SSM();
       this.secretsManager = new AWS.SecretsManager();
     }
   }
-
+  
   static getInstance(): ConfigurationManager {
     if (!ConfigurationManager.instance) {
       ConfigurationManager.instance = new ConfigurationManager();
     }
     return ConfigurationManager.instance;
   }
-
+  
   async load(): Promise<Config> {
     if (this.config) {
       return this.config;
     }
-
+    
     let rawConfig: any = {};
-
+    
     if (this.isCloudEnvironment()) {
       // Load from AWS Parameter Store and Secrets Manager
       rawConfig = await this.loadFromAWS();
@@ -113,7 +113,7 @@ class ConfigurationManager {
       // Load from environment variables
       rawConfig = this.loadFromEnv();
     }
-
+    
     // Validate configuration
     try {
       this.config = configSchema.parse(rawConfig);
@@ -126,20 +126,20 @@ class ConfigurationManager {
       throw error;
     }
   }
-
+  
   get(): Config {
     if (!this.config) {
       throw new Error('Configuration not loaded. Call load() first.');
     }
     return this.config;
   }
-
+  
   private isCloudEnvironment(): boolean {
     return process.env.NODE_ENV === 'production' || 
            process.env.NODE_ENV === 'staging' ||
            process.env.AWS_EXECUTION_ENV !== undefined;
   }
-
+  
   private async loadFromAWS(): Promise<any> {
     const projectName = process.env.PROJECT_NAME || 'my-app';
     const environment = process.env.NODE_ENV || 'development';
@@ -198,7 +198,7 @@ class ConfigurationManager {
       },
     };
   }
-
+  
   private async loadParametersFromSSM(path: string): Promise<Record<string, string>> {
     const params: Record<string, string> = {};
     let nextToken: string | undefined;
@@ -221,7 +221,7 @@ class ConfigurationManager {
     
     return params;
   }
-
+  
   private async loadSecretsFromSecretsManager(
     secretIds: string[]
   ): Promise<Record<string, any>> {
@@ -245,7 +245,7 @@ class ConfigurationManager {
     
     return secrets;
   }
-
+  
   private loadFromEnv(): any {
     return {
       app: {
