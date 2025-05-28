@@ -1,0 +1,40 @@
+# Lambda-compatible Docker image
+# This Dockerfile creates an image that works both locally and in AWS Lambda
+
+# Use AWS Lambda base image
+FROM public.ecr.aws/lambda/nodejs:18 AS builder
+
+# Install build dependencies
+RUN yum install -y gcc-c++ make
+
+# Set working directory
+WORKDIR /var/task
+
+# Copy package files
+COPY package*.json ./
+
+# Install production dependencies
+RUN npm ci --only=production
+
+# Copy TypeScript config and source
+COPY tsconfig.json ./
+COPY src ./src
+
+# Install dev dependencies and build
+RUN npm install --only=development && \
+    npm run build && \
+    rm -rf node_modules && \
+    npm ci --only=production
+
+# Production stage
+FROM public.ecr.aws/lambda/nodejs:18
+
+WORKDIR /var/task
+
+# Copy built application and dependencies
+COPY --from=builder /var/task/dist ./dist
+COPY --from=builder /var/task/node_modules ./node_modules
+COPY --from=builder /var/task/package*.json ./
+
+# Set the CMD to your handler
+CMD ["dist/lambda.handler"]
